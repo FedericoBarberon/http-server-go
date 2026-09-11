@@ -1,47 +1,32 @@
 package httpserver
 
 import (
-	"bufio"
 	"fmt"
 	"net"
 )
 
-type Server struct{}
+type Handle func(*Request) *Response
 
-func NewServer() *Server {
-	return &Server{}
-}
-
-func (s *Server) Serve(l net.Listener) {
+func Serve(l net.Listener, handle Handle) {
 	for {
 		conn, err := l.Accept()
 		if err != nil {
-			fmt.Println("Failed to accept connection")
+			fmt.Println("failed to accept connection")
 			continue
 		}
 
-		handle(conn)
-		conn.Close()
+		go handleConn(conn, handle)
 	}
 }
 
-func handle(conn net.Conn) {
-	buf := bufio.NewReader(conn)
+func handleConn(conn net.Conn, handle Handle) {
+	defer conn.Close()
 
-	for {
-		line, err := buf.ReadString('\n')
-		if err != nil {
-			fmt.Println("Failed to read request: ", err)
-			return
-		}
-
-		if line == "\r\n" {
-			break
-		}
+	req, err := ParseRequest(conn)
+	if err != nil {
+		fmt.Println(err)
+		return
 	}
 
-	resp := []byte("HTTP/1.1 200 OK")
-	if _, err := conn.Write(resp); err != nil {
-		fmt.Println("Failed to send response: ", err)
-	}
+	handle(&req)
 }

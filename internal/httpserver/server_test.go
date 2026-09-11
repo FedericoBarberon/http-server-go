@@ -1,12 +1,19 @@
-package httpserver
+package httpserver_test
 
 import (
 	"bytes"
+	"http-server/internal/httpserver"
 	"io"
 	"net"
 	"testing"
 	"time"
 )
+
+func mockHandle(*httpserver.Request) *httpserver.Response {
+	return &httpserver.Response{
+		Status: 200,
+	}
+}
 
 func TestServerResponse(t *testing.T) {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
@@ -15,8 +22,7 @@ func TestServerResponse(t *testing.T) {
 	}
 	t.Cleanup(func() { l.Close() })
 
-	sv := NewServer()
-	go sv.Serve(l)
+	go httpserver.Serve(l, mockHandle)
 
 	conn, err := net.Dial("tcp", l.Addr().String())
 	if err != nil {
