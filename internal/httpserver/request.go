@@ -15,8 +15,45 @@ type Request struct {
 	Body    []byte
 }
 
+func NewRequest(method HTTPMethod, path string, headers map[string]string, body []byte) (Request, error) {
+	if !method.IsValid() {
+		return Request{}, fmt.Errorf("%s is not a supported HTTP method", method)
+	}
+
+	if !strings.HasPrefix(path, "/") {
+		return Request{}, fmt.Errorf("%s is not a valid path", path)
+	}
+
+	normalizedHeaders := make(map[string]string)
+	for k, v := range headers {
+		normalizedKey := strings.TrimSpace(strings.ToLower(k))
+		if _, ok := normalizedHeaders[normalizedKey]; ok {
+			return Request{}, fmt.Errorf("found duplicated headers keys")
+		}
+		normalizedHeaders[normalizedKey] = strings.TrimSpace(v)
+	}
+
+	if val, ok := normalizedHeaders["transfer-encoding"]; ok && strings.Contains(val, "chunked") {
+		return Request{}, fmt.Errorf("header Transfer-Encoding with chunked is not supported")
+	}
+
+	if contentLengthStr, ok := normalizedHeaders["content-length"]; ok {
+		contentLength, err := strconv.Atoi(contentLengthStr)
+		if err != nil {
+			return Request{}, fmt.Errorf("%s is not a valid Content-Length", contentLengthStr)
+		}
+
+		if contentLength != len(body) {
+			return Request{}, fmt.Errorf("header Content-Length (%d) does not match body length (%d)", contentLength, len(body))
+		}
+	} else if len(body) > 0 {
+		normalizedHeaders["content-length"] = strconv.Itoa(len(body))
+	}
+
+	return Request{Method: method, Path: path, Headers: normalizedHeaders, Body: body}, nil
+}
+
 func ParseRequest(r io.Reader) (Request, error) {
-	var req Request
 	buf := bufio.NewReader(r)
 
 	method, path, err := parseReqLine(buf)
@@ -24,10 +61,7 @@ func ParseRequest(r io.Reader) (Request, error) {
 		return Request{}, err
 	}
 
-	req.Method = method
-	req.Path = path
-
-	req.Headers = make(map[string]string)
+	headers := make(map[string]string)
 	for {
 		key, val, done, err := parseHeader(buf)
 		if err != nil {
@@ -38,16 +72,24 @@ func ParseRequest(r io.Reader) (Request, error) {
 			break
 		}
 
-		req.Headers[key] = val
+		normalizedKey := strings.TrimSpace(strings.ToLower(key))
+
+		if _, ok := headers[normalizedKey]; ok {
+			return Request{}, fmt.Errorf("found duplicated headers keys")
+		}
+		headers[normalizedKey] = strings.TrimSpace(val)
 	}
 
-	if val, ok := req.Headers["transfer-encoding"]; ok && strings.Contains(val, "chunked") {
-		return Request{}, fmt.Errorf("header Transfer-Encoding: chunked not supported")
-	}
+	var body []byte
 
-	contentLengthStr, ok := req.Headers["content-length"]
+	contentLengthStr, ok := headers["content-length"]
 
 	if !ok {
+		req, err := NewRequest(method, path, headers, body)
+		if err != nil {
+			return Request{}, err
+		}
+
 		return req, nil
 	}
 
@@ -56,12 +98,16 @@ func ParseRequest(r io.Reader) (Request, error) {
 		return Request{}, fmt.Errorf("%s is not a valid Content-Length", contentLengthStr)
 	}
 
-	body, err := parseBody(buf, contentLength)
+	body, err = parseBody(buf, contentLength)
 	if err != nil {
 		return Request{}, err
 	}
 
-	req.Body = body
+	req, err := NewRequest(method, path, headers, body)
+	if err != nil {
+		return Request{}, err
+	}
+
 	return req, nil
 }
 
@@ -78,15 +124,8 @@ func parseReqLine(r *bufio.Reader) (method HTTPMethod, path string, err error) {
 		return "", "", fmt.Errorf("%s is not a valid HTTP request line", reqLine)
 	}
 
-	method, err = HTTPMethodFromStr(reqLine[0])
-	if err != nil {
-		return "", "", fmt.Errorf("%s is not a valid HTTP method", reqLine[0])
-	}
-
+	method = HTTPMethod(reqLine[0])
 	path = reqLine[1]
-	if !strings.HasPrefix(path, "/") {
-		return "", "", fmt.Errorf("%s is not a supported path", path)
-	}
 
 	protocol := reqLine[2]
 	if protocol != "HTTP/1.1" {
@@ -111,9 +150,6 @@ func parseHeader(r *bufio.Reader) (key string, val string, done bool, err error)
 	if !ok {
 		return "", "", false, fmt.Errorf("invalid header")
 	}
-
-	key = strings.ToLower(strings.TrimSpace(key))
-	val = strings.TrimSpace(val)
 
 	return
 }

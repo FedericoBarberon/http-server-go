@@ -9,6 +9,10 @@ const (
 	MethodPost HTTPMethod = "POST"
 )
 
+func (m HTTPMethod) IsValid() bool {
+	return m == MethodGet || m == MethodPost
+}
+
 func HTTPMethodFromStr(s string) (HTTPMethod, error) {
 	switch s {
 	case "GET":

@@ -7,6 +7,127 @@ import (
 	"testing"
 )
 
+func TestNewRequest(t *testing.T) {
+	t.Run("creates a valid GET request with no body", func(t *testing.T) {
+		request, err := httpserver.NewRequest(httpserver.MethodGet, "/files/abc.txt", nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.Method != httpserver.MethodGet {
+			t.Errorf("method = %q, want %q", request.Method, httpserver.MethodGet)
+		}
+		if request.Path != "/files/abc.txt" {
+			t.Errorf("path = %q, want %q", request.Path, "/files/abc.txt")
+		}
+		if _, ok := request.Headers["content-length"]; ok {
+			t.Errorf("headers = %#v, expected no content-length for an empty body", request.Headers)
+		}
+	})
+
+	t.Run("normalizes header keys to lowercase", func(t *testing.T) {
+		request, err := httpserver.NewRequest(httpserver.MethodGet, "/",
+			map[string]string{"Host": "example.com"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.Headers["host"] != "example.com" {
+			t.Errorf("host header = %q, want %q", request.Headers["host"], "example.com")
+		}
+		if _, ok := request.Headers["Host"]; ok {
+			t.Errorf("headers = %#v, expected no uppercase key to remain", request.Headers)
+		}
+	})
+
+	// Asunción: colisión después de normalizar (dos keys que solo difieren en
+	// case) se rechaza en vez de dejar que gane una en silencio. El orden de
+	// iteración del map no es determinístico, así que el test solo puede
+	// afirmar que hay error, no cuál valor "ganó".
+	t.Run("rejects headers that collide after normalization", func(t *testing.T) {
+		_, err := httpserver.NewRequest(httpserver.MethodGet, "/",
+			map[string]string{"Host": "example.com", "host": "other.com"}, nil)
+		if err == nil {
+			t.Fatal("expected an error for headers colliding after normalization")
+		}
+	})
+
+	t.Run("normalizes header keys before validating Content-Length", func(t *testing.T) {
+		request, err := httpserver.NewRequest(httpserver.MethodPost, "/files/new.txt",
+			map[string]string{"Content-Length": "5"}, []byte("hello"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.Headers["content-length"] != "5" {
+			t.Errorf("content-length = %q, want %q", request.Headers["content-length"], "5")
+		}
+	})
+
+	t.Run("rejects a Content-Length that doesn't match the body", func(t *testing.T) {
+		_, err := httpserver.NewRequest(httpserver.MethodPost, "/files/new.txt",
+			map[string]string{"content-length": "999"}, []byte("hi"))
+		if err == nil {
+			t.Fatal("expected an error for a Content-Length that doesn't match the body")
+		}
+	})
+
+	t.Run("computes Content-Length automatically when the body is non-empty and it's missing", func(t *testing.T) {
+		request, err := httpserver.NewRequest(httpserver.MethodPost, "/files/new.txt", nil, []byte("hello"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.Headers["content-length"] != "5" {
+			t.Errorf("content-length = %q, want %q", request.Headers["content-length"], "5")
+		}
+	})
+
+	t.Run("accepts an explicit Content-Length of 0 with an empty body", func(t *testing.T) {
+		request, err := httpserver.NewRequest(httpserver.MethodPost, "/files/new.txt",
+			map[string]string{"content-length": "0"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if request.Headers["content-length"] != "0" {
+			t.Errorf("content-length = %q, want %q", request.Headers["content-length"], "0")
+		}
+	})
+
+	t.Run("rejects methods other than GET and POST", func(t *testing.T) {
+		methods := []httpserver.HTTPMethod{"PUT", "DELETE", "PATCH", "HEAD", "CONNECT", "OPTIONS", "TRACE", "get"}
+		for _, method := range methods {
+			t.Run(string(method), func(t *testing.T) {
+				_, err := httpserver.NewRequest(method, "/files/abc.txt", nil, nil)
+				if err == nil {
+					t.Fatalf("expected an error for method %s", method)
+				}
+			})
+		}
+	})
+
+	t.Run("rejects a path that isn't relative", func(t *testing.T) {
+		paths := []string{
+			"http://example.com/file.txt",
+			"*",
+			"file.txt",
+			"",
+		}
+		for _, path := range paths {
+			t.Run(path, func(t *testing.T) {
+				_, err := httpserver.NewRequest(httpserver.MethodGet, path, nil, nil)
+				if err == nil {
+					t.Fatalf("expected an error for path %q", path)
+				}
+			})
+		}
+	})
+
+	t.Run("rejects Transfer-Encoding: chunked", func(t *testing.T) {
+		_, err := httpserver.NewRequest(httpserver.MethodPost, "/files/new.txt",
+			map[string]string{"Transfer-Encoding": "chunked", "content-length": "5"}, []byte("hello"))
+		if err == nil {
+			t.Fatal("expected an error for chunked transfer encoding")
+		}
+	})
+}
+
 func TestParseRequest(t *testing.T) {
 	t.Run("parses a GET request line", func(t *testing.T) {
 		request, err := httpserver.ParseRequest(bytes.NewBufferString(
