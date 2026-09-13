@@ -27,9 +27,14 @@ func NewRequest(method HTTPMethod, path string, headers map[string]string, body 
 	normalizedHeaders := make(map[string]string)
 	for k, v := range headers {
 		normalizedKey := strings.TrimSpace(strings.ToLower(k))
+		normalizedValue := strings.TrimSpace(v)
 
 		if strings.ContainsAny(normalizedKey, ": \t\r\n") {
 			return Request{}, fmt.Errorf("headers keys cannot contain spaces nor ':'")
+		}
+
+		if strings.ContainsAny(normalizedValue, "\n\r") {
+			return Request{}, fmt.Errorf("header value cannot contain CR nor LF")
 		}
 
 		if _, ok := normalizedHeaders[normalizedKey]; ok {

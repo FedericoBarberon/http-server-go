@@ -154,6 +154,19 @@ func TestNewRequest(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("rejects a header value containing CR or LF", func(t *testing.T) {
+		values := []string{"exa\rmple.com", "exa\nmple.com", "exa\r\nX-Injected: evil"}
+		for _, value := range values {
+			t.Run(value, func(t *testing.T) {
+				_, err := httpserver.NewRequest(httpserver.MethodGet, "/",
+					map[string]string{"host": value}, nil)
+				if err == nil {
+					t.Fatalf("expected an error for header value %q", value)
+				}
+			})
+		}
+	})
 }
 
 func TestParseRequest(t *testing.T) {
@@ -363,6 +376,15 @@ func TestParseRequest(t *testing.T) {
 		))
 		if err == nil {
 			t.Fatal("expected an error for a header key containing a bare CR")
+		}
+	})
+
+	t.Run("rejects a header value containing a bare CR", func(t *testing.T) {
+		_, err := httpserver.ParseRequest(bytes.NewBufferString(
+			"GET / HTTP/1.1\r\nHost: exa\rmple.com\r\n\r\n",
+		))
+		if err == nil {
+			t.Fatal("expected an error for a header value containing a bare CR")
 		}
 	})
 }
