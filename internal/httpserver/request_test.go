@@ -126,6 +126,34 @@ func TestNewRequest(t *testing.T) {
 			t.Fatal("expected an error for chunked transfer encoding")
 		}
 	})
+
+	t.Run("rejects a header key containing a space", func(t *testing.T) {
+		_, err := httpserver.NewRequest(httpserver.MethodGet, "/",
+			map[string]string{"x foo": "bar"}, nil)
+		if err == nil {
+			t.Fatal("expected an error for a header key containing a space")
+		}
+	})
+
+	t.Run("rejects a header key containing a colon", func(t *testing.T) {
+		_, err := httpserver.NewRequest(httpserver.MethodGet, "/",
+			map[string]string{"x-foo:bar": "baz"}, nil)
+		if err == nil {
+			t.Fatal("expected an error for a header key containing a colon")
+		}
+	})
+
+	t.Run("rejects a header key containing CR or LF", func(t *testing.T) {
+		for _, key := range []string{"x-foo\r\nbar", "x-foo\nbar"} {
+			t.Run(key, func(t *testing.T) {
+				_, err := httpserver.NewRequest(httpserver.MethodGet, "/",
+					map[string]string{key: "value"}, nil)
+				if err == nil {
+					t.Fatalf("expected an error for header key %q", key)
+				}
+			})
+		}
+	})
 }
 
 func TestParseRequest(t *testing.T) {
@@ -317,6 +345,24 @@ func TestParseRequest(t *testing.T) {
 		))
 		if err == nil {
 			t.Fatal("expected an error for chunked transfer encoding")
+		}
+	})
+
+	t.Run("rejects a header key containing a space", func(t *testing.T) {
+		_, err := httpserver.ParseRequest(bytes.NewBufferString(
+			"GET / HTTP/1.1\r\nX Foo: bar\r\n\r\n",
+		))
+		if err == nil {
+			t.Fatal("expected an error for a header key containing a space")
+		}
+	})
+
+	t.Run("rejects a header key containing a bare CR", func(t *testing.T) {
+		_, err := httpserver.ParseRequest(bytes.NewBufferString(
+			"GET / HTTP/1.1\r\nX-Evil\rMore: stuff\r\n\r\n",
+		))
+		if err == nil {
+			t.Fatal("expected an error for a header key containing a bare CR")
 		}
 	})
 }

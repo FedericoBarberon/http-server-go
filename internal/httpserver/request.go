@@ -27,6 +27,11 @@ func NewRequest(method HTTPMethod, path string, headers map[string]string, body 
 	normalizedHeaders := make(map[string]string)
 	for k, v := range headers {
 		normalizedKey := strings.TrimSpace(strings.ToLower(k))
+
+		if strings.ContainsAny(normalizedKey, ": \t\r\n") {
+			return Request{}, fmt.Errorf("headers keys cannot contain spaces nor ':'")
+		}
+
 		if _, ok := normalizedHeaders[normalizedKey]; ok {
 			return Request{}, fmt.Errorf("found duplicated headers keys")
 		}
