@@ -40,7 +40,7 @@ func NewRequest(method HTTPMethod, path string, headers map[string]string, body 
 		if _, ok := normalizedHeaders[normalizedKey]; ok {
 			return Request{}, fmt.Errorf("found duplicated headers keys")
 		}
-		normalizedHeaders[normalizedKey] = strings.TrimSpace(v)
+		normalizedHeaders[normalizedKey] = normalizedValue
 	}
 
 	if val, ok := normalizedHeaders["transfer-encoding"]; ok && strings.Contains(val, "chunked") {
