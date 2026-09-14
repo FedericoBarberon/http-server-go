@@ -1,18 +1,21 @@
 package httpserver
 
 import (
+	"bytes"
 	"fmt"
+	"maps"
+	"slices"
 	"strconv"
 	"strings"
 )
 
 type Response struct {
-	Status  int
+	Status  uint
 	Headers map[string]string
 	Body    []byte
 }
 
-func NewResponse(status int, headers map[string]string, body []byte) (Response, error) {
+func NewResponse(status uint, headers map[string]string, body []byte) (Response, error) {
 	if status < 100 || status > 599 {
 		return Response{}, fmt.Errorf("%d is not a valid HTTP status code", status)
 	}
@@ -57,7 +60,30 @@ func NewResponse(status int, headers map[string]string, body []byte) (Response, 
 }
 
 func (r *Response) Serialize() []byte {
-	return nil
+	statusLine := fmt.Sprintf("HTTP/1.1 %d %s\r\n", r.Status, r.ReasonPhrase())
+
+	sortedKeys := slices.Sorted(maps.Keys(r.Headers))
+
+	var buf bytes.Buffer
+	buf.Grow(len(statusLine) + (len(sortedKeys) * 30) + len(r.Body))
+
+	buf.WriteString(statusLine)
+
+	for _, key := range sortedKeys {
+		buf.WriteString(key)
+		buf.WriteString(": ")
+		buf.WriteString(r.Headers[key])
+		buf.WriteString("\r\n")
+	}
+
+	buf.WriteString("\r\n")
+	buf.Write(r.Body)
+
+	return buf.Bytes()
+}
+
+func (r *Response) ReasonPhrase() string {
+	return reasonPhrases[r.Status]
 }
 
 func normalizeHeaderKey(s string) string {

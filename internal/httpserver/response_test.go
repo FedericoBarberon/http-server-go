@@ -21,7 +21,7 @@ func TestNewResponse(t *testing.T) {
 	})
 
 	t.Run("accepts boundary status codes", func(t *testing.T) {
-		for _, status := range []int{100, 200, 404, 500, 599} {
+		for _, status := range []uint{100, 200, 404, 500, 599} {
 			t.Run(fmt.Sprintf("%d", status), func(t *testing.T) {
 				_, err := httpserver.NewResponse(status, nil, nil)
 				if err != nil {
@@ -32,7 +32,7 @@ func TestNewResponse(t *testing.T) {
 	})
 
 	t.Run("rejects status codes outside 100-599", func(t *testing.T) {
-		for _, status := range []int{0, 99, 600, 999} {
+		for _, status := range []uint{0, 99, 600, 999} {
 			t.Run(fmt.Sprintf("%d", status), func(t *testing.T) {
 				_, err := httpserver.NewResponse(status, nil, nil)
 				if err == nil {
@@ -160,6 +160,74 @@ func TestNewResponse(t *testing.T) {
 		}
 		if _, ok := response.Headers["Host"]; !ok {
 			t.Errorf("headers = %#v, expected a canonical \"Host\" key", response.Headers)
+		}
+	})
+}
+
+func TestResponseSerialize(t *testing.T) {
+	t.Run("serializes the status line with a known reason phrase", func(t *testing.T) {
+		response, err := httpserver.NewResponse(200, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		got := response.Serialize()
+		want := "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"
+		if string(got) != want {
+			t.Errorf("Serialize() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("falls back to an empty reason phrase for an unrecognized status", func(t *testing.T) {
+		response, err := httpserver.NewResponse(599, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		got := response.Serialize()
+		want := "HTTP/1.1 599 \r\nContent-Length: 0\r\n\r\n"
+		if string(got) != want {
+			t.Errorf("Serialize() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("serializes headers sorted alphabetically by key", func(t *testing.T) {
+		response, err := httpserver.NewResponse(200,
+			map[string]string{"x-request-id": "abc123", "cache-control": "no-cache"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		got := response.Serialize()
+		want := "HTTP/1.1 200 OK\r\nCache-Control: no-cache\r\nContent-Length: 0\r\nX-Request-Id: abc123\r\n\r\n"
+		if string(got) != want {
+			t.Errorf("Serialize() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("separates headers from the body with a blank line and appends the body", func(t *testing.T) {
+		response, err := httpserver.NewResponse(200, nil, []byte("hello"))
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		got := response.Serialize()
+		want := "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello"
+		if string(got) != want {
+			t.Errorf("Serialize() = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("serializes an empty body with no bytes after the blank line", func(t *testing.T) {
+		response, err := httpserver.NewResponse(204, nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		got := response.Serialize()
+		want := "HTTP/1.1 204 No Content\r\nContent-Length: 0\r\n\r\n"
+		if string(got) != want {
+			t.Errorf("Serialize() = %q, want %q", got, want)
 		}
 	})
 }
